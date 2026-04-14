@@ -25,8 +25,12 @@ from intent.classifier import ALLOWED_INTENTS, classify_intent
 from stt.transcriber import transcribe_audio
 from tools.chat import general_chat
 from tools.code_gen import generate_and_save_code
-from tools.file_ops import create_file
+from tools.code_runner import run_code
+from tools.code_explainer import explain_code
+from tools.code_fixer import fix_code
+from tools.file_ops import create_file, list_files
 from tools.summarizer import summarize_text
+from tools.web_search import search_web
 
 
 def print_result(name: str, passed: bool, detail: str = "") -> None:
@@ -68,6 +72,11 @@ def test_classifier() -> bool:
         ("write_code", "Write Python code for a function that computes factorial."),
         ("summarize", "Summarize this: FastAPI is a modern Python web framework."),
         ("general_chat", "How are you doing today?"),
+        ("run_code", "Run the Python file in output folder"),
+        ("explain_code", "Explain what this code does"),
+        ("fix_code", "Fix any bugs in my code"),
+        ("list_files", "Show me what files are in the output folder"),
+        ("search_web", "Search for information about Python programming"),
     ]
 
     overall_passed = True
@@ -138,6 +147,61 @@ def test_tools() -> bool:
         results.append(passed)
     except Exception as exc:  # noqa: BLE001
         print_result("Tool generate_and_save_code", False, str(exc))
+        results.append(False)
+
+    # Test run_code tool (will try to run most recent file or fail gracefully).
+    try:
+        run_code_result = run_code()
+        passed = isinstance(run_code_result.get("success"), bool)
+        detail = f"success={run_code_result.get('success')}, filename={run_code_result.get('filename')}"
+        print_result("Tool run_code", passed, detail)
+        results.append(passed)
+    except Exception as exc:  # noqa: BLE001
+        print_result("Tool run_code", False, str(exc))
+        results.append(False)
+
+    # Test explain_code tool (will try to explain most recent file or fail gracefully).
+    try:
+        explain_code_result = explain_code()
+        passed = isinstance(explain_code_result.get("success"), bool)
+        detail = f"success={explain_code_result.get('success')}, filename={explain_code_result.get('filename')}"
+        print_result("Tool explain_code", passed, detail)
+        results.append(passed)
+    except Exception as exc:  # noqa: BLE001
+        print_result("Tool explain_code", False, str(exc))
+        results.append(False)
+
+    # Test fix_code tool (will try to fix most recent file or fail gracefully).
+    try:
+        fix_code_result = fix_code()
+        passed = isinstance(fix_code_result.get("success"), bool)
+        detail = f"success={fix_code_result.get('success')}, filename={fix_code_result.get('filename')}"
+        print_result("Tool fix_code", passed, detail)
+        results.append(passed)
+    except Exception as exc:  # noqa: BLE001
+        print_result("Tool fix_code", False, str(exc))
+        results.append(False)
+
+    # Test list_files tool.
+    try:
+        list_files_result = list_files()
+        passed = bool(list_files_result.get("success")) and isinstance(list_files_result.get("files"), list)
+        detail = f"success={list_files_result.get('success')}, file_count={len(list_files_result.get('files', []))}"
+        print_result("Tool list_files", passed, detail)
+        results.append(passed)
+    except Exception as exc:  # noqa: BLE001
+        print_result("Tool list_files", False, str(exc))
+        results.append(False)
+
+    # Test search_web tool.
+    try:
+        search_result = search_web("Python programming")
+        passed = bool(search_result.get("success")) and isinstance(search_result.get("results"), list)
+        detail = f"success={search_result.get('success')}, result_count={len(search_result.get('results', []))}"
+        print_result("Tool search_web", passed, detail)
+        results.append(passed)
+    except Exception as exc:  # noqa: BLE001
+        print_result("Tool search_web", False, str(exc))
         results.append(False)
 
     return all(results)

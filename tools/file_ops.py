@@ -80,3 +80,36 @@ def create_file(filename: str, content: str = "") -> dict[str, str | bool]:
 			"path": "",
 			"message": f"Failed to create file/folder: {exc}",
 		}
+
+
+def list_files() -> dict[str, bool | list[dict[str, str | int]]]:
+	"""List all files in the output directory with metadata.
+
+	Returns {success, files: [{name, size, modified}]}
+	"""
+	OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+	try:
+		files_info: list[dict[str, str | int]] = []
+
+		for file_path in sorted(OUTPUT_DIR.glob("*")):
+			if file_path.is_file():
+				stat_info = file_path.stat()
+				files_info.append(
+					{
+						"name": file_path.name,
+						"size": stat_info.st_size,
+						"modified": datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+					}
+				)
+
+		return {
+			"success": True,
+			"files": files_info,
+		}
+	except Exception as exc:  # noqa: BLE001
+		return {
+			"success": False,
+			"files": [],
+			"message": f"Failed to list files in output/: {exc}",
+		}

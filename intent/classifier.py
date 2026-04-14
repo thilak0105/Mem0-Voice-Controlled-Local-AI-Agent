@@ -5,6 +5,11 @@ The classifier maps user text into one of these intents:
 - write_code
 - summarize
 - general_chat
+- run_code
+- explain_code
+- fix_code
+- list_files
+- search_web
 
 It always returns a normalized structured result and falls back safely to
 general_chat when parsing fails or the model returns an unknown intent.
@@ -21,7 +26,17 @@ import requests
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3.2:3b"
-ALLOWED_INTENTS = {"create_file", "write_code", "summarize", "general_chat"}
+ALLOWED_INTENTS = {
+	"create_file",
+	"write_code",
+	"summarize",
+	"general_chat",
+	"run_code",
+	"explain_code",
+	"fix_code",
+	"list_files",
+	"search_web",
+}
 
 
 @dataclass
@@ -31,8 +46,10 @@ class IntentResult:
 	intent: str
 	filename: Optional[str]
 	content: str
+	query: Optional[str] = None
 	raw_model_output: str = ""
 	error: Optional[str] = None
+
 
 
 class IntentClassifier:
@@ -50,16 +67,23 @@ class IntentClassifier:
 			"Do not include markdown, code fences, or extra text.\\n"
 			"Use exactly this schema:\\n"
 			"{\\n"
-			'  "intent": "create_file" | "write_code" | "summarize" | "general_chat",\\n'
-			'  "filename": "<name if applicable, else null>",\\n'
+			'  "intent": "create_file" | "write_code" | "summarize" | "general_chat" | "run_code" | "explain_code" | "fix_code" | "list_files" | "search_web",\\n'
+			'  "filename": "<file in output/ if applicable, else null>",\\n'
+			'  "query": "<search query if search_web, else null>",\\n'
 			'  "content": "<description or text to process>"\\n'
 			"}\\n"
 			"Rules:\\n"
 			"- If user asks to create file/folder, use create_file and infer filename when possible.\\n"
 			"- If user asks to generate/modify code, use write_code and filename if provided.\\n"
 			"- If user asks to summarize text, use summarize and put source text in content.\\n"
+			"- If user asks to run/execute code, use run_code and filename if provided.\\n"
+			"- If user asks to explain code, use explain_code and filename if provided.\\n"
+			"- If user asks to fix/debug code, use fix_code and filename if provided.\\n"
+			"- If user asks to list/show files, use list_files and set filename to null.\\n"
+			"- If user asks to search/look up info on the web, use search_web and put search terms in query.\\n"
 			"- Otherwise use general_chat.\\n"
 			"- filename must be null when not applicable.\\n"
+			"- query must be null except for search_web intent.\\n"
 			"- content must never be empty; copy the user request if needed.\\n\\n"
 			f"User text: {text}"
 		)
@@ -78,13 +102,22 @@ class IntentClassifier:
 			cleaned = str(raw_filename).strip()
 			filename = cleaned if cleaned and cleaned.lower() != "null" else None
 
+		# Accept missing/empty query as None to simplify downstream handling.
+		raw_query = payload.get("query")
+		query: Optional[str]
+		if raw_query is None:
+			query = None
+		else:
+			cleaned = str(raw_query).strip()
+			query = cleaned if cleaned and cleaned.lower() != "null" else None
+
 		# Ensure content always has something usable.
 		raw_content = payload.get("content")
 		content = str(raw_content).strip() if raw_content is not None else ""
 		if not content:
 			content = fallback_content
 
-		return IntentResult(intent=intent, filename=filename, content=content)
+		return IntentResult(intent=intent, filename=filename, content=content, query=query)
 
 	def classify(self, text: str) -> IntentResult:
 		"""Classify input text into a structured intent JSON-equivalent object."""
@@ -94,6 +127,7 @@ class IntentClassifier:
 				intent="general_chat",
 				filename=None,
 				content="",
+				query=None,
 				error="No text was provided for intent classification.",
 			)
 
@@ -117,6 +151,7 @@ class IntentClassifier:
 					intent="general_chat",
 					filename=None,
 					content=cleaned_text,
+					query=None,
 					raw_model_output="",
 					error="Model returned an empty response; defaulted to general_chat.",
 				)
@@ -134,6 +169,7 @@ class IntentClassifier:
 				intent="general_chat",
 				filename=None,
 				content=cleaned_text,
+				query=None,
 				raw_model_output="",
 				error=f"Intent classification failed; defaulted to general_chat. Details: {exc}",
 			)

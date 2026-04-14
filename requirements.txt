@@ -8,6 +8,7 @@ pydantic>=2.8.0
 requests>=2.32.0
 openai-whisper>=20240930
 torch>=2.2.0
+ddgs>=9.0.0
 
 # Audio and signal processing
 sounddevice>=0.4.7
