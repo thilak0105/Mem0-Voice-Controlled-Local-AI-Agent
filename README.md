@@ -6,7 +6,8 @@ Local AI agent that accepts audio input, transcribes with Whisper, classifies in
 
 - Local speech-to-text with Whisper small model
 - Local intent classification with Ollama llama3.2:3b
-- Tool routing for create_file, write_code, summarize, and general_chat
+- Tool routing for create_file, write_code, summarize, general_chat, run_code, explain_code, fix_code, list_files, and search_web
+- Safe code execution, code explanation, code repair, file listing, and web search helpers
 - SSE streaming pipeline updates from backend to frontend
 - Safety guardrail: generated files are restricted to output
 
@@ -42,6 +43,11 @@ Local AI agent that accepts audio input, transcribes with Whisper, classifies in
                     | write_code           |
                     | summarize            |
                     | general_chat         |
+                    | run_code             |
+                    | explain_code         |
+                    | fix_code             |
+                    | list_files           |
+                    | search_web           |
                     +----------+-----------+
                                |
                                v
@@ -66,8 +72,12 @@ voice-agent/
   tools/
     file_ops.py
     code_gen.py
+    code_runner.py
+    code_explainer.py
+    code_fixer.py
     summarizer.py
     chat.py
+    web_search.py
   utils/recorder.py
   output/
   frontend/
@@ -84,6 +94,7 @@ voice-agent/
 - Node.js 18+
 - Ollama installed locally
 - Homebrew (for ffmpeg)
+- Python package: `ddgs`
 
 ## Hardware Workarounds Used (Apple Silicon M1)
 
@@ -200,6 +211,7 @@ Backend URL:
 - POST /process
   - Input: {"transcription": "..."}
   - Output: intent, filename, action_taken, output, success
+  - Supported intents: create_file, write_code, summarize, general_chat, run_code, explain_code, fix_code, list_files, search_web
 
 - POST /agent
   - Input: multipart audio file
@@ -208,6 +220,8 @@ Backend URL:
     - classifying
     - executing
     - done
+  - For `fix_code`, the stream can also include reading file, analyzing, fixing, saving
+  - For `search_web`, the stream can also include searching and processing results
 
 - GET /history
   - Output: last 10 actions from in-memory session history
@@ -220,13 +234,13 @@ Backend URL:
 Run local pipeline test script:
 
 ```bash
-python tests/test_pipeline.py
+python3 tests/test_pipeline.py
 ```
 
 It validates:
 - Transcriber using generated sample wav
-- Classifier behavior across four sample intents
-- Direct tool execution for all tool modules
+- Classifier behavior across nine sample intents
+- Direct tool execution for all tool modules, including run_code, explain_code, fix_code, list_files, and search_web
 
 Note:
 - On first run, Whisper model download can take time.
