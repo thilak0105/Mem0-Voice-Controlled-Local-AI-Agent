@@ -10,7 +10,7 @@ Routes:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import tempfile
@@ -27,8 +27,12 @@ from intent.classifier import classify_intent
 from stt.transcriber import transcribe_audio
 from tools.chat import general_chat
 from tools.code_gen import generate_and_save_code
-from tools.file_ops import create_file
+from tools.code_runner import run_code
+from tools.code_explainer import explain_code
+from tools.code_fixer import fix_code
+from tools.file_ops import create_file, list_files
 from tools.summarizer import summarize_text
+from tools.web_search import search_web
 
 
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -65,7 +69,7 @@ def _record_history(entry: dict[str, Any]) -> None:
         app.state.history = app.state.history[-100:]
 
 
-def _execute_intent(intent: str, filename: str | None, content: str) -> dict[str, Any]:
+def _execute_intent(intent: str, filename: str | None, content: str, query: str | None = None) -> dict[str, Any]:
     """Route an intent to the appropriate tool and normalize result fields."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -97,6 +101,70 @@ def _execute_intent(intent: str, filename: str | None, content: str) -> dict[str
             "filename": None,
             "action_taken": "Text summarization executed",
             "output": str(tool_result.get("summary", "")),
+            "success": bool(tool_result.get("success", False)),
+        }
+
+    if intent == "run_code":
+        tool_result = run_code(filename)
+        output = tool_result.get("output", "") if tool_result.get("success", False) else tool_result.get("error", "")
+        return {
+            "intent": intent,
+            "filename": tool_result.get("filename", ""),
+            "action_taken": f"Executed {tool_result.get('filename', 'file')}",
+            "output": output,
+            "success": bool(tool_result.get("success", False)),
+        }
+
+    if intent == "explain_code":
+        tool_result = explain_code(filename)
+        return {
+            "intent": intent,
+            "filename": tool_result.get("filename", ""),
+            "action_taken": f"Explained code in {tool_result.get('filename', 'file')}",
+            "output": tool_result.get("explanation", "") or tool_result.get("message", "Failed to explain code"),
+            "success": bool(tool_result.get("success", False)),
+        }
+
+    if intent == "fix_code":
+        tool_result = fix_code(filename)
+        return {
+            "intent": intent,
+            "filename": tool_result.get("filename", ""),
+            "action_taken": f"Fixed code in {tool_result.get('filename', 'file')}",
+            "output": tool_result.get("fixed_code", "") or tool_result.get("message", "Failed to fix code"),
+            "success": bool(tool_result.get("success", False)),
+        }
+
+    if intent == "list_files":
+        tool_result = list_files()
+        files_str = ", ".join([f"{f.get('name', '')} ({f.get('size', 0)} bytes)" for f in tool_result.get("files", [])])
+        return {
+            "intent": intent,
+            "filename": None,
+            "action_taken": "Listed output directory",
+            "output": files_str or "No files in output directory.",
+            "success": bool(tool_result.get("success", False)),
+        }
+
+    if intent == "search_web":
+        search_query = query or content
+        tool_result = search_web(search_query)
+        used_query = tool_result.get("used_query") or search_query
+        results_str = ""
+        if tool_result.get("success", False):
+            for i, res in enumerate(tool_result.get("results", []), 1):
+                results_str += f"{i}. {res.get('title', 'No title')} - {res.get('url', 'No URL')}\n"
+                results_str += f"   {res.get('snippet', 'No snippet')}\n"
+        else:
+            results_str = (
+                f"Search query: {used_query}\n"
+                f"{tool_result.get('message', 'Search failed.')}"
+            )
+        return {
+            "intent": intent,
+            "filename": None,
+            "action_taken": f"Searched the web for: {used_query}",
+            "output": results_str.strip(),
             "success": bool(tool_result.get("success", False)),
         }
 
@@ -152,11 +220,12 @@ async def process(request: ProcessRequest) -> dict[str, Any]:
         normalized_intent,
         intent_result.filename,
         intent_result.content,
+        intent_result.query,
     )
 
     _record_history(
         {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "transcription": transcription,
             "intent": result["intent"],
             "filename": result["filename"],
@@ -210,23 +279,33 @@ async def agent(file: UploadFile = File(...)) -> StreamingResponse:
             intent_result = await run_in_threadpool(classify_intent, transcription_result.text)
             normalized_intent = intent_result.intent if intent_result.intent else "general_chat"
 
-            # Stage 3: executing
-            executing_payload = {
-                "stage": "executing",
-                "intent": normalized_intent,
-            }
-            yield f"data: {json.dumps(executing_payload)}\n\n"
+            # Stage 3: intent-specific execution stages
+            if normalized_intent == "fix_code":
+                yield 'data: {"stage": "reading file"}\n\n'
+                yield 'data: {"stage": "analyzing"}\n\n'
+                yield 'data: {"stage": "fixing"}\n\n'
+                yield 'data: {"stage": "saving"}\n\n'
+            elif normalized_intent == "search_web":
+                yield 'data: {"stage": "searching"}\n\n'
+                yield 'data: {"stage": "processing results"}\n\n'
+            else:
+                executing_payload = {
+                    "stage": "executing",
+                    "intent": normalized_intent,
+                }
+                yield f"data: {json.dumps(executing_payload)}\n\n"
 
             result = await run_in_threadpool(
                 _execute_intent,
                 normalized_intent,
                 intent_result.filename,
                 intent_result.content,
+                intent_result.query,
             )
 
             _record_history(
                 {
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "transcription": transcription_result.text,
                     "intent": result["intent"],
                     "filename": result["filename"],

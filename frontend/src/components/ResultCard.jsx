@@ -42,7 +42,7 @@ function ResultCard({ transcription, intent, action, output }) {
 
       <article className="card p-4">
         <h3 className="mb-2 text-sm font-semibold text-slate-200">Final Output</h3>
-        <pre className="scrollbar-dark max-h-72 overflow-auto rounded-lg border border-border bg-bg p-3">
+        <pre className="scrollbar-dark max-h-72 overflow-auto rounded-lg border border-border bg-bg p-3 whitespace-pre-wrap break-words">
           <code ref={codeRef} className="language-python code-block">
             {output || "No output yet."}
           </code>
